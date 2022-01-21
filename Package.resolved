@@ -1,0 +1,16 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "CSErrors",
+        "repositoryURL": "https://github.com/CharlesJS/CSErrors",
+        "state": {
+          "branch": null,
+          "revision": "99193333bbfa311975e1cd1308f1c1ea588ddfff",
+          "version": "0.4.1"
+        }
+      }
+    ]
+  },
+  "version": 1
+}
