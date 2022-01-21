@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 1/20/22.
 //
 
+import CSErrors
 import Dispatch
 import System
 
@@ -59,14 +60,14 @@ extension PTYProcess {
                 defer { closeOnExit.forEach { close($0) } }
 
                 var actions: posix_spawn_file_actions_t? = nil
-                if posix_spawn_file_actions_init(&actions) != 0 { throw Self.makeErrno(errno) }
+                if posix_spawn_file_actions_init(&actions) != 0 { throw errno() }
                 defer { posix_spawn_file_actions_destroy(&actions) }
 
                 let (primary: primary, secondary: secondary) = try Self.openPTYPair()
 
                 if posix_spawn_file_actions_addclose(&actions, primary) != 0 ||
                     posix_spawn_file_actions_adddup2(&actions, secondary, STDIN_FILENO) != 0 {
-                    throw Self.makeErrno(errno)
+                    throw errno()
                 }
 
                 self.stdoutChannel = try Self.setUpChannel(
@@ -117,7 +118,7 @@ extension PTYProcess {
                     let err = posix_spawn(&pid, path, &actions, nil, argv, envp)
 
                     if err != 0 {
-                        throw Self.makeErrno(err)
+                        throw errno()
                     }
                 }
 
@@ -126,19 +127,6 @@ extension PTYProcess {
                 closeOnError.forEach { close($0) }
 
                 throw error
-            }
-        }
-
-        private struct LegacyErrno: Error {
-            var _domain: String { "NSPOSIXErrorDomain" }
-            let _code: Int
-        }
-
-        private static func makeErrno(_ err: CInt) -> Error {
-            if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
-                return Errno(rawValue: err)
-            } else {
-                return LegacyErrno(_code: Int(err))
             }
         }
 
@@ -153,11 +141,11 @@ extension PTYProcess {
         private static func openPTYPair() throws -> (primary: Int32, secondary: Int32) {
             let primary = posix_openpt(O_RDWR)
 
-            if primary < 0 || grantpt(primary) != 0 || unlockpt(primary) != 0 { throw makeErrno(errno) }
+            if primary < 0 || grantpt(primary) != 0 || unlockpt(primary) != 0 { throw errno() }
 
             let secondary = open(ptsname(primary), O_RDWR | O_NOCTTY)
 
-            if secondary < 0 { throw makeErrno(errno) }
+            if secondary < 0 { throw errno() }
 
             return (primary: primary, secondary: secondary)
         }
@@ -203,14 +191,14 @@ extension PTYProcess {
                 return .none
             case .pty:
                 if posix_spawn_file_actions_adddup2(&actions, secondary, fd) != 0 {
-                    throw self.makeErrno(errno)
+                    throw errno()
                 }
 
                 return .pty
             case .pipe:
                 var fds: [Int32] = [0, 0]
                 try fds.withUnsafeMutableBufferPointer {
-                    if Darwin.pipe($0.baseAddress!) != 0 { throw self.makeErrno(errno) }
+                    if Darwin.pipe($0.baseAddress!) != 0 { throw errno() }
                 }
 
                 closeOnExit.append(fds[1])
@@ -218,7 +206,7 @@ extension PTYProcess {
 
                 if posix_spawn_file_actions_addclose(&actions, fds[0]) != 0 ||
                     posix_spawn_file_actions_adddup2(&actions, fds[1], fd) != 0 {
-                    throw self.makeErrno(errno)
+                    throw errno()
                 }
 
                 return .pipe(FileDescriptorWrapper(rawDescriptor: fds[0]))
@@ -257,7 +245,7 @@ extension PTYProcess {
             var status: Int32 = 0
 
             if waitpid(self.processIdentifier, &status, WNOHANG) < 0 {
-                self.notify(result: .failure(Self.makeErrno(errno)))
+                self.notify(result: .failure(errno()))
                 return
             }
 

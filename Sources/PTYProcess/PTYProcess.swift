@@ -5,7 +5,6 @@
 //  Copyright © 2018-2022 Charles Srstka. All rights reserved.
 //
 
-import CSErrors
 import Dispatch
 import System
 
