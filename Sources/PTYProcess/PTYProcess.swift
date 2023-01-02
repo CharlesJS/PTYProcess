@@ -2,7 +2,7 @@
 //  PTYProcess.swift
 //
 //  Created by Charles Srstka on 5/30/18.
-//  Copyright © 2018-2022 Charles Srstka. All rights reserved.
+//  Copyright © 2018-2023 Charles Srstka. All rights reserved.
 //
 
 import Dispatch
