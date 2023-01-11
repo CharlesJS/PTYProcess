@@ -1,61 +1,41 @@
 //
-//  PTYProcessRunner.swift
+//  Runner.swift
 //  
 //
 //  Created by Charles Srstka on 1/20/22.
 //
 
 import CSErrors
-import Dispatch
-import System
 
-// Macros from sys/wait that unfortunately aren't exposed to Swift
-private func _WSTATUS(_ x: Int32) -> Int32 { x & 0o177 }
-private func WIFEXITED(_ x: Int32) -> Bool { _WSTATUS(x) == 0 }
-private func WEXITSTATUS(_ x: Int32) -> Int32 { (x >> 8) & 0xff }
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 extension PTYProcess {
-    internal actor Runner {
-        private enum Channel {
-            case none
-            case pty
-            case pipe(FileDescriptorWrapper)
-
-            func getFileDescriptor(pty: FileDescriptorWrapper) -> FileDescriptorWrapper? {
-                switch self {
-                case .none:
-                    return nil
-                case .pty:
-                    return pty
-                case .pipe(let fd):
-                    return fd
-                }
-            }
-        }
-
-        private let stdoutChannel: Channel
-        private let stderrChannel: Channel
-
+    internal class Runner {
         let processIdentifier: pid_t
-        var result: Result<Int32, Error>? = nil
 
         let pty: FileDescriptorWrapper
-        var stdout: FileDescriptorWrapper? { self.stdoutChannel.getFileDescriptor(pty: self.pty) }
-        var stderr: FileDescriptorWrapper? { self.stderrChannel.getFileDescriptor(pty: self.pty) }
+        let stdout: FileDescriptorWrapper?
+        let stderr: FileDescriptorWrapper?
 
         init(
             path: UnsafePointer<Int8>,
             arguments: [String],
             environment: [String : String]?,
-            stdoutRequest: CaptureRequest,
-            stderrRequest: CaptureRequest,
-            allowReading: Bool,
-            allowWriting: Bool,
-            canonicalMode: Bool
+            currentDirectory: UnsafePointer<Int8>?,
+            stdoutRequest: CaptureRequest?,
+            stderrRequest: CaptureRequest?,
+            options: PTYOptions,
+            signalMask: sigset_t?
         ) throws {
             var closeOnError: [Int32] = []
 
             do {
+                let (primary: primaryPTY, secondary: secondaryPTY) = try Self.openPTYPair(options: options)
+
                 var closeOnExit: [Int32] = []
                 defer { closeOnExit.forEach { close($0) } }
 
@@ -63,35 +43,62 @@ extension PTYProcess {
                 if posix_spawn_file_actions_init(&actions) != 0 { throw errno() }
                 defer { posix_spawn_file_actions_destroy(&actions) }
 
-                let (primary: primary, secondary: secondary) = try Self.openPTYPair()
-
-                if posix_spawn_file_actions_addclose(&actions, primary) != 0 ||
-                    posix_spawn_file_actions_adddup2(&actions, secondary, STDIN_FILENO) != 0 {
+                if posix_spawn_file_actions_addclose(&actions, primaryPTY) != 0 ||
+                    posix_spawn_file_actions_adddup2(&actions, secondaryPTY, STDIN_FILENO) != 0 {
                     throw errno()
                 }
 
-                self.stdoutChannel = try Self.setUpChannel(
+                // chdir gives ENOENT if the current directory is empty, so treat empty string as a nil here
+                if let currentDirectory, currentDirectory[0] != 0,
+                   posix_spawn_file_actions_addchdir_np(&actions, currentDirectory) != 0 {
+                    throw errno()
+                }
+
+                var attrs: posix_spawnattr_t? = nil
+                if case let err = posix_spawnattr_init(&attrs), err != 0 {
+                    throw errno(err)
+                }
+
+                defer { posix_spawnattr_destroy(&attrs) }
+
+                if case let err = posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETPGROUP)), err != 0 {
+                    throw errno(err)
+                }
+
+                if var signalMask {
+                    if case let err = posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETSIGMASK)), err != 0 {
+                        throw errno(err)
+                    }
+
+                    if case let err = posix_spawnattr_setsigmask(&attrs, &signalMask), err != 0 {
+                        throw errno(err)
+                    }
+                }
+
+                self.pty = FileDescriptorWrapper(rawDescriptor: primaryPTY)
+
+                self.stdout = try Self.setUpChannel(
                     request: stdoutRequest,
                     fd: STDOUT_FILENO,
-                    secondary: secondary,
+                    primaryPTY: primaryPTY,
+                    secondaryPTY: secondaryPTY,
                     actions: &actions,
                     closeOnExit: &closeOnExit,
                     closeOnError: &closeOnError
                 )
 
-                self.stderrChannel = try Self.setUpChannel(
+                self.stderr = try Self.setUpChannel(
                     request: stderrRequest,
                     fd: STDERR_FILENO,
-                    secondary: secondary,
+                    primaryPTY: primaryPTY,
+                    secondaryPTY: secondaryPTY,
                     actions: &actions,
                     closeOnExit: &closeOnExit,
                     closeOnError: &closeOnError
                 )
 
-                self.pty = FileDescriptorWrapper(rawDescriptor: primary)
-
-                closeOnError.append(primary)
-                closeOnExit.append(secondary)
+                closeOnError.append(primaryPTY)
+                closeOnExit.append(secondaryPTY)
 
                 let argc = arguments.count + 1
                 let argv = UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>.allocate(capacity: argc + 1)
@@ -115,7 +122,7 @@ extension PTYProcess {
                 var pid: pid_t = 0
 
                 try Self.withEnvironmentPointer(for: environment) { envp in
-                    let err = posix_spawn(&pid, path, &actions, nil, argv, envp)
+                    let err = posix_spawn(&pid, path, &actions, &attrs, argv, envp)
 
                     if err != 0 {
                         throw errno()
@@ -130,24 +137,25 @@ extension PTYProcess {
             }
         }
 
+        private static func openPTYPair(options: PTYOptions) throws -> (primary: Int32, secondary: Int32) {
+            let primary = posix_openpt(O_RDWR)
+
+            if primary < 0 || grantpt(primary) != 0 || unlockpt(primary) != 0 { throw errno() }
+            let secondary = open(ptsname(primary), O_RDWR | O_NOCTTY)
+
+            if secondary < 0 { throw errno() }
+            
+            try options.apply(to: primary, immediately: true, drainFirst: false)
+
+            return (primary: primary, secondary: secondary)
+        }
+
         private static func swiftStrdup(_ str: UnsafePointer<Int8>) -> UnsafeMutablePointer<Int8> {
             let len = strlen(str)
             let newString = UnsafeMutablePointer<Int8>.allocate(capacity: len + 1)
             newString.assign(from: str, count: len)
             newString[len] = 0
             return newString
-        }
-
-        private static func openPTYPair() throws -> (primary: Int32, secondary: Int32) {
-            let primary = posix_openpt(O_RDWR)
-
-            if primary < 0 || grantpt(primary) != 0 || unlockpt(primary) != 0 { throw errno() }
-
-            let secondary = open(ptsname(primary), O_RDWR | O_NOCTTY)
-
-            if secondary < 0 { throw errno() }
-
-            return (primary: primary, secondary: secondary)
         }
 
         private static func withEnvironmentPointer(
@@ -179,22 +187,29 @@ extension PTYProcess {
         }
 
         private static func setUpChannel(
-            request: CaptureRequest,
+            request: CaptureRequest?,
             fd: Int32,
-            secondary: Int32,
+            primaryPTY: Int32,
+            secondaryPTY: Int32,
             actions: inout posix_spawn_file_actions_t?,
             closeOnExit: inout [Int32],
             closeOnError: inout [Int32]
-        ) throws -> Channel {
+        ) throws -> FileDescriptorWrapper? {
             switch request {
             case .none:
-                return .none
+                return nil
+            case .null:
+                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                    return try .init(fileDescriptor: .open("/dev/null", .readWrite))
+                } else {
+                    return .init(rawDescriptor: open("/dev/null", O_RDWR))
+                }
             case .pty:
-                if posix_spawn_file_actions_adddup2(&actions, secondary, fd) != 0 {
+                if posix_spawn_file_actions_adddup2(&actions, secondaryPTY, fd) != 0 {
                     throw errno()
                 }
 
-                return .pty
+                return FileDescriptorWrapper(rawDescriptor: primaryPTY)
             case .pipe:
                 var fds: [Int32] = [0, 0]
                 try fds.withUnsafeMutableBufferPointer {
@@ -209,59 +224,8 @@ extension PTYProcess {
                     throw errno()
                 }
 
-                return .pipe(FileDescriptorWrapper(rawDescriptor: fds[0]))
+                return FileDescriptorWrapper(rawDescriptor: fds[0])
             }
-        }
-
-        private var continuations: [CheckedContinuation<Int32, Error>] = []
-
-        func addContinuation(_ continuation: CheckedContinuation<Int32, Error>) {
-            if let result = self.result {
-                continuation.resume(with: result)
-            } else {
-                self.continuations.append(continuation)
-            }
-        }
-
-        private var signalSource: DispatchSourceSignal? = nil
-        func startWatching() {
-            let signalSource = DispatchSource.makeSignalSource(signal: SIGCHLD)
-            self.signalSource = signalSource
-
-            signalSource.setEventHandler {
-                Task(priority: .userInitiated) {
-                    self.eventHandler()
-                }
-            }
-
-            signalSource.activate()
-        }
-
-        private func eventHandler() {
-            self.signalSource?.setEventHandler(handler: nil)
-            self.signalSource?.cancel()
-            self.signalSource = nil
-
-            var status: Int32 = 0
-
-            if waitpid(self.processIdentifier, &status, WNOHANG) < 0 {
-                self.notify(result: .failure(errno()))
-                return
-            }
-
-            if WIFEXITED(status) {
-                self.notify(result: .success(WEXITSTATUS(status)))
-            }
-        }
-
-        private func notify(result: Result<Int32, Error>) {
-            self.result = result
-            
-            for eachContinuation in self.continuations {
-                eachContinuation.resume(with: result)
-            }
-
-            self.continuations.removeAll()
         }
     }
 }

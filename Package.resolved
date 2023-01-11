@@ -1,16 +1,32 @@
 {
-  "object": {
-    "pins": [
-      {
-        "package": "CSErrors",
-        "repositoryURL": "https://github.com/CharlesJS/CSErrors",
-        "state": {
-          "branch": null,
-          "revision": "99193333bbfa311975e1cd1308f1c1ea588ddfff",
-          "version": "0.4.1"
-        }
+  "pins" : [
+    {
+      "identity" : "cserrors",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CharlesJS/CSErrors",
+      "state" : {
+        "revision" : "99193333bbfa311975e1cd1308f1c1ea588ddfff",
+        "version" : "0.4.1"
       }
-    ]
-  },
-  "version": 1
+    },
+    {
+      "identity" : "swift-async-algorithms",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-async-algorithms",
+      "state" : {
+        "revision" : "434591a571a8c4fe073500926414356d3b40f460",
+        "version" : "0.0.2"
+      }
+    },
+    {
+      "identity" : "xctasyncassertions",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CharlesJS/XCTAsyncAssertions",
+      "state" : {
+        "revision" : "1c8c478443c39905183700105889016788ba12ad",
+        "version" : "0.1.1"
+      }
+    }
+  ],
+  "version" : 2
 }
