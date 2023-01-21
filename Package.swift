@@ -23,8 +23,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "0.0.2"),
-        .package(url: "https://github.com/CharlesJS/CSErrors", from: "0.4.1"),
-        .package(url: "https://github.com/CharlesJS/XCTAsyncAssertions", from: "0.1.1")
+        .package(url: "https://github.com/CharlesJS/CSErrors", from: "1.0.0"),
+        .package(url: "https://github.com/CharlesJS/XCTAsyncAssertions", from: "0.2.0")
     ],
     targets: [
         .target(
@@ -36,7 +36,10 @@ let package = Package(
         ),
         .target(
             name: "PTYProcess_Foundation",
-            dependencies: ["PTYProcess"]
+            dependencies: [
+                "PTYProcess",
+                .product(name: "CSErrors+Foundation", package: "CSErrors")
+            ]
         ),
         .testTarget(
             name: "PTYProcessTests",

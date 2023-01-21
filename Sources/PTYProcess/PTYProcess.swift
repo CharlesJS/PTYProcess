@@ -289,7 +289,7 @@ public class PTYProcess {
         stderrRequest: CaptureRequest? = .pty,
         options: PTYOptions = [],
         signalMask: sigset_t? = nil
-    ) throws {
+    ) async throws {
         precondition(self.runner == nil && self.watcher == nil, "Cannot run PTYProcess more than once")
 
         func withCurrentDirectory(closure: (UnsafePointer<CChar>?) throws -> Runner) rethrows -> Runner {
@@ -320,9 +320,7 @@ public class PTYProcess {
         self.runner = runner
         self.watcher = watcher
 
-        Task(priority: .userInitiated) {
-            await watcher.startWatching()
-        }
+        await watcher.startWatching()
     }
 
     public func terminate() async throws {

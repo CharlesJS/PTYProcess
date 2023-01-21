@@ -41,7 +41,7 @@ extension PTYProcess {
         }
 
         private var signalSource: DispatchSourceSignal? = nil
-        func startWatching() {
+        func startWatching() async {
             let signalSource = DispatchSource.makeSignalSource(signal: SIGCHLD)
             self.signalSource = signalSource
 
@@ -52,6 +52,12 @@ extension PTYProcess {
             }
 
             signalSource.activate()
+
+            return await withCheckedContinuation { continuation in
+                signalSource.setRegistrationHandler {
+                    continuation.resume()
+                }
+            }
         }
 
         func suspend() throws {
