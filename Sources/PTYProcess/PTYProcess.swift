@@ -74,10 +74,9 @@ public class PTYProcess {
             func closeFile() {
                 switch self {
                 case .fileDescriptor(let fd):
-                    guard #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) else {
-                        preconditionFailure("Should not be reached")
+                    if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                        _ = try? (fd as! FileDescriptor).close()
                     }
-                    _ = try? (fd as! FileDescriptor).close()
                 case .raw(let raw):
                     close(raw)
                 }
@@ -90,7 +89,11 @@ public class PTYProcess {
         }
 
         init(rawDescriptor: CInt) {
-            self.storage = .raw(rawDescriptor)
+            if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                self.storage = .fileDescriptor(FileDescriptor(rawValue: rawDescriptor))
+            } else {
+                self.storage = .raw(rawDescriptor)
+            }
         }
 
         deinit {
@@ -112,11 +115,13 @@ public class PTYProcess {
         var rawDescriptor: Int32 {
             switch self.storage {
             case .fileDescriptor(let fd):
-                guard #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) else {
-                    preconditionFailure("Should not be reached")
+                var rawFD: Int32 = 0
+                
+                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                    rawFD = (fd as! FileDescriptor).rawValue
                 }
 
-                return (fd as! FileDescriptor).rawValue
+                return rawFD
             case .raw(let raw):
                 return raw
             }
