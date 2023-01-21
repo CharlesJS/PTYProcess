@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CharlesJS/CSErrors",
       "state" : {
-        "revision" : "544e41855a95a9c4398738d69934cc831150003d",
-        "version" : "1.0.0"
+        "revision" : "72ce19a5702571e2bbcf27d25954e13112c131c3",
+        "version" : "1.1.0"
       }
     },
     {
