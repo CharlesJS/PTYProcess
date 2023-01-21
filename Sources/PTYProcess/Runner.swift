@@ -39,40 +39,33 @@ extension PTYProcess {
                 var closeOnExit: [Int32] = []
                 defer { closeOnExit.forEach { close($0) } }
 
-                var actions: posix_spawn_file_actions_t? = nil
-                if posix_spawn_file_actions_init(&actions) != 0 { throw errno() }
+                var actions = try callPOSIXFunction(expect: .zero) { posix_spawn_file_actions_init($0) }
                 defer { posix_spawn_file_actions_destroy(&actions) }
 
-                if posix_spawn_file_actions_addclose(&actions, primaryPTY) != 0 ||
-                    posix_spawn_file_actions_adddup2(&actions, secondaryPTY, STDIN_FILENO) != 0 {
-                    throw errno()
+                try callPOSIXFunction(expect: .zero) {
+                    posix_spawn_file_actions_addclose(&actions, primaryPTY)
+                }
+
+                try callPOSIXFunction(expect: .zero) {
+                    posix_spawn_file_actions_adddup2(&actions, secondaryPTY, STDIN_FILENO)
                 }
 
                 // chdir gives ENOENT if the current directory is empty, so treat empty string as a nil here
-                if let currentDirectory, currentDirectory[0] != 0,
-                   posix_spawn_file_actions_addchdir_np(&actions, currentDirectory) != 0 {
-                    throw errno()
+                if let currentDirectory, currentDirectory[0] != 0 {
+                    try callPOSIXFunction(expect: .zero) {
+                        posix_spawn_file_actions_addchdir_np(&actions, currentDirectory)
+                    }
                 }
 
-                var attrs: posix_spawnattr_t? = nil
-                if case let err = posix_spawnattr_init(&attrs), err != 0 {
-                    throw errno(err)
-                }
+                var attrs = try callPOSIXFunction(expect: .zero) { posix_spawnattr_init($0) }
 
                 defer { posix_spawnattr_destroy(&attrs) }
 
-                if case let err = posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETPGROUP)), err != 0 {
-                    throw errno(err)
-                }
+                try callPOSIXFunction(expect: .zero) { posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETPGROUP)) }
 
                 if var signalMask {
-                    if case let err = posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETSIGMASK)), err != 0 {
-                        throw errno(err)
-                    }
-
-                    if case let err = posix_spawnattr_setsigmask(&attrs, &signalMask), err != 0 {
-                        throw errno(err)
-                    }
+                    try callPOSIXFunction(expect: .zero) { posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETSIGMASK)) }
+                    try callPOSIXFunction(expect: .zero) { posix_spawnattr_setsigmask(&attrs, &signalMask) }
                 }
 
                 self.pty = FileDescriptorWrapper(rawDescriptor: primaryPTY)
@@ -122,10 +115,8 @@ extension PTYProcess {
                 var pid: pid_t = 0
 
                 try Self.withEnvironmentPointer(for: environment) { envp in
-                    let err = posix_spawn(&pid, path, &actions, &attrs, argv, envp)
-
-                    if err != 0 {
-                        throw errno()
+                    try callPOSIXFunction(expect: .zero, errorFrom: .returnValue) {
+                        posix_spawn(&pid, path, &actions, &attrs, argv, envp)
                     }
                 }
 
@@ -138,13 +129,12 @@ extension PTYProcess {
         }
 
         private static func openPTYPair(options: PTYOptions) throws -> (primary: Int32, secondary: Int32) {
-            let primary = posix_openpt(O_RDWR)
+            let primary = try callPOSIXFunction(expect: .nonNegative) { posix_openpt(O_RDWR) }
+            try callPOSIXFunction(expect: .zero) { grantpt(primary) }
+            try callPOSIXFunction(expect: .zero) { unlockpt(primary) }
 
-            if primary < 0 || grantpt(primary) != 0 || unlockpt(primary) != 0 { throw errno() }
-            let secondary = open(ptsname(primary), O_RDWR | O_NOCTTY)
+            let secondary = try callPOSIXFunction(expect: .nonNegative) { open(ptsname(primary), O_RDWR | O_NOCTTY) }
 
-            if secondary < 0 { throw errno() }
-            
             try options.apply(to: primary, immediately: true, drainFirst: false)
 
             return (primary: primary, secondary: secondary)
@@ -205,24 +195,24 @@ extension PTYProcess {
                     return .init(rawDescriptor: open("/dev/null", O_RDWR))
                 }
             case .pty:
-                if posix_spawn_file_actions_adddup2(&actions, secondaryPTY, fd) != 0 {
-                    throw errno()
+                try callPOSIXFunction(expect: .zero) {
+                    posix_spawn_file_actions_adddup2(&actions, secondaryPTY, fd)
                 }
 
                 return FileDescriptorWrapper(rawDescriptor: primaryPTY)
             case .pipe:
                 var fds: [Int32] = [0, 0]
-                try fds.withUnsafeMutableBufferPointer {
-                    if Darwin.pipe($0.baseAddress!) != 0 { throw errno() }
+                try fds.withUnsafeMutableBufferPointer { buf -> Void in
+                    try callPOSIXFunction(expect: .zero) {
+                        Darwin.pipe(buf.baseAddress!)
+                    }
                 }
 
                 closeOnExit.append(fds[1])
                 closeOnError.append(fds[0])
 
-                if posix_spawn_file_actions_addclose(&actions, fds[0]) != 0 ||
-                    posix_spawn_file_actions_adddup2(&actions, fds[1], fd) != 0 {
-                    throw errno()
-                }
+                try callPOSIXFunction(expect: .zero) { posix_spawn_file_actions_addclose(&actions, fds[0]) }
+                try callPOSIXFunction(expect: .zero) { posix_spawn_file_actions_adddup2(&actions, fds[1], fd) }
 
                 return FileDescriptorWrapper(rawDescriptor: fds[0])
             }

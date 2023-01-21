@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CharlesJS/CSErrors",
       "state" : {
-        "revision" : "99193333bbfa311975e1cd1308f1c1ea588ddfff",
-        "version" : "0.4.1"
+        "revision" : "544e41855a95a9c4398738d69934cc831150003d",
+        "version" : "1.0.0"
       }
     },
     {
@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CharlesJS/XCTAsyncAssertions",
       "state" : {
-        "revision" : "1c8c478443c39905183700105889016788ba12ad",
-        "version" : "0.1.1"
+        "revision" : "99167ce5d442b11a06f4a17b29982ecc280790fc",
+        "version" : "0.2.0"
       }
     }
   ],
