@@ -46,18 +46,32 @@ extension PTYProcess {
             self.signalSource = signalSource
 
             signalSource.setEventHandler {
-                Task(priority: .userInitiated) {
+                Task {
                     self.refreshStatus(wait: true)
                 }
             }
-
-            signalSource.activate()
 
             return await withCheckedContinuation { continuation in
                 signalSource.setRegistrationHandler {
                     continuation.resume()
                 }
+
+                signalSource.activate()
             }
+        }
+
+        private func stopWatching() async {
+            guard let signalSource = self.signalSource else { return }
+
+            await withCheckedContinuation { continuation in
+                signalSource.setCancelHandler {
+                    continuation.resume()
+                }
+
+                signalSource.cancel()
+            }
+
+            self.signalSource = nil
         }
 
         func suspend() throws {
@@ -112,11 +126,10 @@ extension PTYProcess {
             self._status = status
 
             if final {
-                self.signalSource?.setEventHandler(handler: nil)
-                self.signalSource?.cancel()
-                self.signalSource = nil
-
-                self.notify(result: .success(status))
+                Task {
+                    await self.stopWatching()
+                    self.notify(result: .success(status))
+                }
             }
         }
 

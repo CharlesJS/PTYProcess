@@ -36,8 +36,10 @@ extension PTYProcess {
             do {
                 let (primary: primaryPTY, secondary: secondaryPTY) = try Self.openPTYPair(options: options)
 
-                var closeOnExit: [Int32] = []
+                var closeOnExit: [Int32] = [secondaryPTY]
                 defer { closeOnExit.forEach { close($0) } }
+
+                closeOnError.append(primaryPTY)
 
                 var actions = try callPOSIXFunction(expect: .zero) { posix_spawn_file_actions_init($0) }
                 defer { posix_spawn_file_actions_destroy(&actions) }
@@ -89,9 +91,6 @@ extension PTYProcess {
                     closeOnExit: &closeOnExit,
                     closeOnError: &closeOnError
                 )
-
-                closeOnError.append(primaryPTY)
-                closeOnExit.append(secondaryPTY)
 
                 let argc = arguments.count + 1
                 let argv = UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>.allocate(capacity: argc + 1)
@@ -207,7 +206,6 @@ extension PTYProcess {
                         Darwin.pipe(buf.baseAddress!)
                     }
                 }
-
                 closeOnExit.append(fds[1])
                 closeOnError.append(fds[0])
 
