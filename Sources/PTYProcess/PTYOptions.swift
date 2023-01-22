@@ -73,13 +73,7 @@ extension PTYProcess {
         }
 
         private static func getTermios(fileDescriptor: Int32) throws -> termios {
-            var t = termios()
-
-            if tcgetattr(fileDescriptor, &t) != 0 {
-                throw errno()
-            }
-
-            return t
+            try callPOSIXFunction(expect: .zero) { tcgetattr(fileDescriptor, $0) }
         }
 
         private static func setTermios(_ t: termios, fileDescriptor: Int32, immediately: Bool, drainFirst: Bool) throws {
@@ -94,9 +88,7 @@ extension PTYProcess {
                 options |= TCSADRAIN
             }
 
-            if tcsetattr(fileDescriptor, options, &t) != 0 {
-                throw errno()
-            }
+            try callPOSIXFunction(expect: .zero) { tcsetattr(fileDescriptor, options, &t) }
         }
     }
 }

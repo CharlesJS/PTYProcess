@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 1/2/23.
 //
 
+import CSErrors_Foundation
 import Foundation
 import System
 import PTYProcess
@@ -17,7 +18,7 @@ extension PTYProcess {
         currentDirectory: URL? = nil
     ) throws {
         guard executableURL.isFileURL else {
-            throw POSIXError(.EINVAL)
+            throw CocoaError(.fileReadUnsupportedScheme, url: executableURL)
         }
 
         if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {

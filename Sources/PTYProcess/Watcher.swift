@@ -83,20 +83,23 @@ extension PTYProcess {
         }
 
         func sendSignal(_ signal: Int32) throws {
-            if kill(self.processIdentifier, signal) != 0 { throw errno() }
+            try callPOSIXFunction(expect: .zero) { kill(self.processIdentifier, signal) }
         }
 
         private func refreshStatus(wait: Bool) {
-            var status = siginfo_t()
-
             var opts = WEXITED | WSTOPPED | WCONTINUED
 
             if !wait {
                 opts |= WNOHANG | WNOWAIT
             }
 
-            if waitid(P_PID, id_t(bitPattern: self.processIdentifier), &status, opts) < 0 {
-                self.notify(result: .failure(errno()))
+            let status: siginfo_t
+            do {
+                status = try callPOSIXFunction(expect: .nonNegative) {
+                    waitid(P_PID, id_t(bitPattern: self.processIdentifier), $0, opts)
+                }
+            } catch {
+                self.notify(result: .failure(error))
                 return
             }
 

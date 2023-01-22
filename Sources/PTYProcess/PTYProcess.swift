@@ -127,10 +127,6 @@ public class PTYProcess {
             }
         }
 
-        func getBytes(capacity: Int) -> AsyncBytes {
-            AsyncBytes(fileDescriptor: self, capacity: capacity)
-        }
-
         func readBytes(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
             if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
                 return try self.fileDescriptor.read(into: buffer)
@@ -300,9 +296,9 @@ public class PTYProcess {
         func withCurrentDirectory(closure: (UnsafePointer<CChar>?) throws -> Runner) rethrows -> Runner {
             if let currentDirectory = self._currentDirectory {
                 return try currentDirectory.withCString(closure)
-            } else {
-                return try closure(nil)
             }
+
+            return try closure(nil)
         }
 
         let runner = try self._executablePath.withCString { path in
