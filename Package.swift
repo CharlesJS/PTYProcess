@@ -24,7 +24,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "0.0.2"),
         .package(url: "https://github.com/CharlesJS/CSErrors", from: "1.1.0"),
-        .package(url: "https://github.com/CharlesJS/XCTAsyncAssertions", from: "0.2.0")
+        .package(url: "https://github.com/CharlesJS/XCTAsyncAssertions", from: "0.2.0"),
+        .package(url: "https://github.com/mattgallagher/CwlPreconditionTesting.git", from: Version("2.0.0"))
     ],
     targets: [
         .target(
@@ -43,7 +44,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PTYProcessTests",
-            dependencies: ["PTYProcess_Foundation", "XCTAsyncAssertions"]
+            dependencies: ["PTYProcess_Foundation", "XCTAsyncAssertions", "CwlPreconditionTesting"]
         )
     ]
 )

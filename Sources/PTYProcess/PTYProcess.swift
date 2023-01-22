@@ -42,6 +42,21 @@ public class PTYProcess {
                 return lSig == rSig
             }
         }
+
+        internal init?(signalInfo: siginfo_t) {
+            switch signalInfo.si_code {
+            case CLD_EXITED:
+                self = .exited(signalInfo.si_status)
+            case CLD_KILLED, CLD_DUMPED:
+                self = .uncaughtSignal(signalInfo.si_status)
+            case CLD_STOPPED:
+                self = .suspended(signalInfo.si_pid)
+            case CLD_CONTINUED:
+                self = .running(signalInfo.si_pid)
+            default:
+                return nil
+            }
+        }
     }
 
     public struct AsyncBytes: AsyncSequence {
@@ -74,7 +89,7 @@ public class PTYProcess {
             func closeFile() {
                 switch self {
                 case .fileDescriptor(let fd):
-                    if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                    if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) {
                         _ = try? (fd as! FileDescriptor).close()
                     }
                 case .raw(let raw):
@@ -89,7 +104,7 @@ public class PTYProcess {
         }
 
         init(rawDescriptor: CInt) {
-            if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+            if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) {
                 self.storage = .fileDescriptor(FileDescriptor(rawValue: rawDescriptor))
             } else {
                 self.storage = .raw(rawDescriptor)
@@ -117,7 +132,7 @@ public class PTYProcess {
             case .fileDescriptor(let fd):
                 var rawFD: Int32 = 0
                 
-                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) {
                     rawFD = (fd as! FileDescriptor).rawValue
                 }
 
@@ -128,11 +143,11 @@ public class PTYProcess {
         }
 
         func readBytes(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-            if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
-                return try self.fileDescriptor.read(into: buffer)
-            } else {
+            guard #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) else {
                 return read(self.rawDescriptor, buffer.baseAddress, buffer.count)
             }
+
+            return try self.fileDescriptor.read(into: buffer)
         }
     }
 
@@ -178,26 +193,30 @@ public class PTYProcess {
         var asString: String {
             switch self {
             case .filePath(let path):
-                if #available(macOS 12.0, macCatalyst 15.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *) {
-                    return (path as! FilePath).string
-                } else if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
-                    return String(decoding: path as! FilePath)
-                } else {
+                guard #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) else {
                     preconditionFailure("Should never be reached")
                 }
+
+                guard #available(macOS 12.0, macCatalyst 15.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *), versionCheck(12) else {
+                    return String(decoding: path as! FilePath)
+                }
+
+                return (path as! FilePath).string
             case .string(let string):
                 return string
             }
         }
 
         func withCString<Result>(_ body: (UnsafePointer<Int8>) throws -> Result) rethrows -> Result {
-            if #available(macOS 12.0, macCatalyst 15.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *) {
-                return try self.asFilePath.withPlatformString(body)
-            } else if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
-                return try self.asFilePath.withCString(body)
-            } else {
+            guard #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) else {
                 return try self.asString.withCString(body)
             }
+
+            guard #available(macOS 12.0, macCatalyst 15.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *), versionCheck(12) else {
+                return try self.asFilePath.withCString(body)
+            }
+
+            return try self.asFilePath.withPlatformString(body)
         }
     }
 
@@ -291,6 +310,28 @@ public class PTYProcess {
         options: PTYOptions = [],
         signalMask: sigset_t? = nil
     ) async throws {
+        let runner = try self.makeRunner(
+            stdoutRequest: stdoutRequest,
+            stderrRequest: stderrRequest,
+            options: options,
+            signalMask: signalMask
+        )
+
+        let watcher = Watcher(processIdentifier: runner.processIdentifier)
+
+        self.runner = runner
+        self.watcher = watcher
+
+        await watcher.startWatching()
+    }
+
+    // internal for testing purposes
+    internal func makeRunner(
+        stdoutRequest: CaptureRequest? = .pty,
+        stderrRequest: CaptureRequest? = .pty,
+        options: PTYOptions = [],
+        signalMask: sigset_t? = nil
+    ) throws -> Runner {
         precondition(self.runner == nil && self.watcher == nil, "Cannot run PTYProcess more than once")
 
         func withCurrentDirectory(closure: (UnsafePointer<CChar>?) throws -> Runner) rethrows -> Runner {
@@ -301,7 +342,7 @@ public class PTYProcess {
             return try closure(nil)
         }
 
-        let runner = try self._executablePath.withCString { path in
+        return try self._executablePath.withCString { path in
             try withCurrentDirectory { currentDirectory in
                 try Runner(
                     path: path,
@@ -315,13 +356,6 @@ public class PTYProcess {
                 )
             }
         }
-
-        let watcher = Watcher(processIdentifier: runner.processIdentifier)
-
-        self.runner = runner
-        self.watcher = watcher
-
-        await watcher.startWatching()
     }
 
     public func terminate() async throws {
@@ -333,11 +367,13 @@ public class PTYProcess {
     }
 
     public func suspend() async throws {
-        try await self.watcher?.suspend()
+        guard let watcher = self.watcher else { throw errno(ESRCH) }
+        try await watcher.suspend()
     }
 
     public func resume() async throws {
-        try await self.watcher?.resume()
+        guard let watcher = self.watcher else { throw errno(ESRCH) }
+        try await watcher.resume()
     }
 
     private func sendSignal(_ signal: Int32) async throws {

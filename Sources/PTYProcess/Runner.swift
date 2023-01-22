@@ -188,7 +188,7 @@ extension PTYProcess {
             case .none:
                 return nil
             case .null:
-                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+                if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) {
                     return try .init(fileDescriptor: .open("/dev/null", .readWrite))
                 } else {
                     return .init(rawDescriptor: open("/dev/null", O_RDWR))

@@ -61,17 +61,17 @@ extension PTYProcess {
         }
 
         private func stopWatching() async {
-            guard let signalSource = self.signalSource else { return }
+            if let signalSource = self.signalSource {
+                await withCheckedContinuation { continuation in
+                    signalSource.setCancelHandler {
+                        continuation.resume()
+                    }
 
-            await withCheckedContinuation { continuation in
-                signalSource.setCancelHandler {
-                    continuation.resume()
+                    signalSource.cancel()
                 }
 
-                signalSource.cancel()
+                self.signalSource = nil
             }
-
-            self.signalSource = nil
         }
 
         func suspend() throws {
@@ -93,9 +93,9 @@ extension PTYProcess {
                 opts |= WNOHANG | WNOWAIT
             }
 
-            let status: siginfo_t
+            let sigInfo: siginfo_t
             do {
-                status = try callPOSIXFunction(expect: .nonNegative) {
+                sigInfo = try callPOSIXFunction(expect: .nonNegative) {
                     waitid(P_PID, id_t(bitPattern: self.processIdentifier), $0, opts)
                 }
             } catch {
@@ -103,25 +103,17 @@ extension PTYProcess {
                 return
             }
 
-            if status.si_signo == 0 {
+            guard sigInfo.si_signo == SIGCHLD, sigInfo.si_pid == processIdentifier else {
                 return
             }
 
-            guard status.si_signo == SIGCHLD, status.si_pid == self.processIdentifier else {
-                print("Warning: Unexpected signal \(status)")
-                return
-            }
-
-            switch status.si_code {
-            case CLD_EXITED:
-                self.setStatus(.exited(status.si_status), final: true)
-            case CLD_KILLED, CLD_DUMPED:
-                self.setStatus(.uncaughtSignal(status.si_status), final: true)
-            case CLD_STOPPED:
-                self.setStatus(.suspended(self.processIdentifier), final: false)
-            case CLD_CONTINUED:
-                self.setStatus(.running(self.processIdentifier), final: false)
-            default: break
+            if let status = PTYProcess.Status(signalInfo: sigInfo) {
+                switch status {
+                case .exited, .uncaughtSignal:
+                    self.setStatus(status, final: true)
+                default:
+                    self.setStatus(status, final: false)
+                }
             }
         }
 

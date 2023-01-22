@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 1/2/23.
 //
 
+@_spi(PTYProcessInternal) import PTYProcess
 import CSErrors_Foundation
 import Foundation
 import System
@@ -21,7 +22,7 @@ extension PTYProcess {
             throw CocoaError(.fileReadUnsupportedScheme, url: executableURL)
         }
 
-        if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+        if #available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *), versionCheck(11) {
             self.init(
                 executablePath: FilePath(executableURL.path),
                 arguments: arguments,

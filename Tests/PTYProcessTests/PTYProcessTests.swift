@@ -3,6 +3,7 @@ import System
 import XCTAsyncAssertions
 import CSErrors
 import CSErrors_Foundation
+import CwlPreconditionTesting
 @testable import PTYProcess
 @testable import PTYProcess_Foundation
 
@@ -32,6 +33,8 @@ class PTYProcessTests: XCTestCase {
         }
     }
 
+    class var supportsFilePath: Bool { true }
+
     private func testProcess(
         path: String,
         arguments: [String] = [],
@@ -40,13 +43,15 @@ class PTYProcessTests: XCTestCase {
     ) async throws {
         try await closure(PTYProcess(executablePath: path, arguments: arguments, currentDirectory: currentDirectory))
 
-        try await closure(
-            PTYProcess(
-                executablePath: FilePath(path),
-                arguments: arguments,
-                currentDirectory: currentDirectory.map { FilePath($0) }
+        if Self.supportsFilePath {
+            try await closure(
+                PTYProcess(
+                    executablePath: FilePath(path),
+                    arguments: arguments,
+                    currentDirectory: currentDirectory.map { FilePath($0) }
+                )
             )
-        )
+        }
 
         try await closure(
             PTYProcess(
@@ -136,6 +141,45 @@ class PTYProcessTests: XCTestCase {
         }
     }
 
+    func testInvalidPreconditions() async throws {
+        let process = PTYProcess(executablePath: "/bin/sh", arguments: ["-i"])
+
+        XCTAssertThrowsError(_ = try process.ptyOptions) {
+            XCTAssertEqual($0 as? Errno, .badFileDescriptor)
+        }
+
+        XCTAssertThrowsError(try process.setPTYOptions([])) {
+            XCTAssertEqual($0 as? Errno, .badFileDescriptor)
+        }
+
+        await XCTAssertThrowsErrorAsync(try await process.terminate()) {
+            XCTAssertEqual($0 as? Errno, .noSuchProcess)
+        }
+
+        await XCTAssertThrowsErrorAsync(try await process.interrupt()) {
+            XCTAssertEqual($0 as? Errno, .noSuchProcess)
+        }
+
+        await XCTAssertThrowsErrorAsync(try await process.suspend()) {
+            XCTAssertEqual($0 as? Errno, .noSuchProcess)
+        }
+
+        await XCTAssertThrowsErrorAsync(try await process.resume()) {
+            XCTAssertEqual($0 as? Errno, .noSuchProcess)
+        }
+
+        XCTAssertNotNil(catchBadInstruction { _ = process.ptyBytes })
+        XCTAssertNotNil(catchBadInstruction { _ = process.stdoutBytes })
+        XCTAssertNotNil(catchBadInstruction { _ = process.stderrBytes })
+
+        try await process.run(stdoutRequest: .none, stderrRequest: .none)
+        XCTAssertNotNil(process.ptyBytes)
+        XCTAssertNotNil(catchBadInstruction { _ = process.stdoutBytes })
+        XCTAssertNotNil(catchBadInstruction { _ = process.stderrBytes })
+
+        XCTAssertNotNil(catchBadInstruction { _ = try? process.makeRunner() })
+    }
+
     func testStateChanges() async throws {
         try await self.testProcess(path: "/bin/sh", arguments: ["-i"]) { process in
             await XCTAssertEqualAsync(await process.status, .notRunYet)
@@ -180,6 +224,33 @@ class PTYProcessTests: XCTestCase {
         XCTAssertEqual(PTYProcess.Status.uncaughtSignal(1), .uncaughtSignal(1))
         XCTAssertNotEqual(PTYProcess.Status.uncaughtSignal(1), .uncaughtSignal(2))
         XCTAssertNotEqual(PTYProcess.Status.uncaughtSignal(1), .exited(1))
+    }
+
+    func testStatusMappings() {
+        var sigInfo = siginfo_t()
+
+        sigInfo.si_code = CLD_EXITED
+        sigInfo.si_status = 123
+        XCTAssertEqual(PTYProcess.Status(signalInfo: sigInfo), .exited(123))
+
+        sigInfo.si_code = CLD_KILLED
+        sigInfo.si_status = 234
+        XCTAssertEqual(PTYProcess.Status(signalInfo: sigInfo), .uncaughtSignal(234))
+
+        sigInfo.si_code = CLD_DUMPED
+        sigInfo.si_status = 345
+        XCTAssertEqual(PTYProcess.Status(signalInfo: sigInfo), .uncaughtSignal(345))
+
+        sigInfo.si_code = CLD_STOPPED
+        sigInfo.si_pid = 456
+        XCTAssertEqual(PTYProcess.Status(signalInfo: sigInfo), .suspended(456))
+
+        sigInfo.si_code = CLD_CONTINUED
+        sigInfo.si_pid = 567
+        XCTAssertEqual(PTYProcess.Status(signalInfo: sigInfo), .running(567))
+
+        sigInfo.si_code = CLD_NOOP
+        XCTAssertNil(PTYProcess.Status(signalInfo: sigInfo))
     }
 
     func testInvalidPath() async throws {
@@ -843,5 +914,20 @@ class PTYProcessTests: XCTestCase {
         }
 
         XCTAssertNotEqual(childPGID, getpgrp())
+    }
+
+    func testIncorrectSignalsSentToWatcher() async throws {
+        let process = PTYProcess(executablePath: "/bin/sh", arguments: ["-i"])
+
+        try await process.run()
+
+        // cause watcher to consume a `wait` on the pid
+        kill(ProcessInfo.processInfo.processIdentifier, SIGCHLD)
+
+        try process.ptyHandle?.write(contentsOf: "exit\n".data(using: .utf8)!)
+
+        await XCTAssertThrowsErrorAsync(try await process.waitUntilExit()) {
+            XCTAssertEqual($0 as? Errno, .noChildProcess)
+        }
     }
 }
