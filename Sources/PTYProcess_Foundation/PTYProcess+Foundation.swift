@@ -5,7 +5,7 @@
 //  Created by Charles Srstka on 1/2/23.
 //
 
-@_spi(PTYProcessInternal) import PTYProcess
+import PTYProcess
 import CSErrors_Foundation
 import Foundation
 import System

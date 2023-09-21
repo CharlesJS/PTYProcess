@@ -16,7 +16,7 @@ func resetMacOSVersion() {
 }
 
 private var emulatedVersion = Int.max
-@_spi(PTYProcessInternal) public func versionCheck(_ vers: Int) -> Bool { emulatedVersion >= vers }
+package func versionCheck(_ vers: Int) -> Bool { emulatedVersion >= vers }
 #else
-@inline(__always) @_spi(PTYProcessInternal) public func versionCheck(_ vers: Int) -> Bool { true }
+@inline(__always) package func versionCheck(_ vers: Int) -> Bool { true }
 #endif

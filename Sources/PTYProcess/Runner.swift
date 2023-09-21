@@ -142,7 +142,7 @@ extension PTYProcess {
         private static func swiftStrdup(_ str: UnsafePointer<Int8>) -> UnsafeMutablePointer<Int8> {
             let len = strlen(str)
             let newString = UnsafeMutablePointer<Int8>.allocate(capacity: len + 1)
-            newString.assign(from: str, count: len)
+            newString.update(from: str, count: len)
             newString[len] = 0
             return newString
         }
