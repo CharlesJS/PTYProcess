@@ -18,6 +18,7 @@ extension PTYProcess {
         public static let disableEcho = PTYOptions(rawValue: 1 << 1)
         public static let nonCanonical = PTYOptions(rawValue: 1 << 2)
         public static let outputCRLF = PTYOptions(rawValue: 1 << 3)
+        public static let inheritProcessGroup = PTYOptions(rawValue: 1 << 4)
 
         private static let attributeMappings: [PTYOptions : AttributeMapping] = [
             .disableEcho: .init(keyPath: \.c_lflag, flag: ECHO, inverted: true),

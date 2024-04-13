@@ -60,10 +60,11 @@ extension PTYProcess {
                 }
 
                 var attrs = try callPOSIXFunction(expect: .zero) { posix_spawnattr_init($0) }
-
                 defer { posix_spawnattr_destroy(&attrs) }
 
-                try callPOSIXFunction(expect: .zero) { posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETPGROUP)) }
+                if !options.contains(.inheritProcessGroup) {
+                    try callPOSIXFunction(expect: .zero) { posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETPGROUP)) }
+                }
 
                 if var signalMask {
                     try callPOSIXFunction(expect: .zero) { posix_spawnattr_setflags(&attrs, Int16(POSIX_SPAWN_SETSIGMASK)) }
