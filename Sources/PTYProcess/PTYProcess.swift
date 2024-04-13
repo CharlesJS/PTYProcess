@@ -73,9 +73,15 @@ public class PTYProcess {
         }
 
         public func makeAsyncIterator() -> AsyncBufferedByteIterator {
-            AsyncBufferedByteIterator(capacity: self.capacity) { ptr in
-                try await Task {
-                    try self.fileDescriptor.readBytes(into: ptr)
+            AsyncBufferedByteIterator(capacity: self.capacity) { buf in
+                struct BufferWrapper: @unchecked Sendable {
+                    let buffer: UnsafeMutableRawBufferPointer
+                }
+
+                let bufWrapper = BufferWrapper(buffer: buf)
+
+                return try await Task {
+                    try self.fileDescriptor.readBytes(into: bufWrapper.buffer)
                 }.value
             }
         }

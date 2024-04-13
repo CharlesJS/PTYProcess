@@ -14,7 +14,7 @@ import Glibc
 import CSErrors
 
 extension PTYProcess {
-    public struct PTYOptions: OptionSet, Hashable {
+    public struct PTYOptions: OptionSet, Hashable, Sendable {
         public static let disableEcho = PTYOptions(rawValue: 1 << 1)
         public static let nonCanonical = PTYOptions(rawValue: 1 << 2)
         public static let outputCRLF = PTYOptions(rawValue: 1 << 3)
